@@ -80,6 +80,62 @@
           drop-shadow(4px 0 18px rgba(0, 229, 204, 0.1));
 }
 
+/* ============================================================
+   收起/展开的内容滑动：面板内容与区域裁剪同时起跑（260ms 同缓动），
+   收起 = 内容自己滑向边缘（不再出现"扫描残片"），展开 = 反向滑入
+   ============================================================ */
+.panel {
+  transition: transform 260ms cubic-bezier(0.55, 0.055, 0.675, 0.19);
+  will-change: transform;
+}
+/* 右缘（默认）：把手/隐藏态时面板完全滑出屏幕右缘 */
+.st-handle .panel,
+.st-hidden .panel {
+  transform: translateX(360px);
+}
+/* 展开：从滑出位弹回（back-out，与 Rust easeOutBack 对应） */
+.st-panel .panel {
+  animation: panel-in-right 260ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes panel-in-right {
+  from { transform: translateX(360px); }
+  to { transform: none; }
+}
+
+/* 左缘镜像：向左滑出 */
+.dock-left.st-handle .panel,
+.dock-left.st-hidden .panel {
+  transform: translateX(-360px);
+}
+.dock-left.st-panel .panel {
+  animation-name: panel-in-left;
+}
+@keyframes panel-in-left {
+  from { transform: translateX(-360px); }
+  to { transform: none; }
+}
+
+/* 上缘：向上滑出 */
+.dock-top.st-handle .panel,
+.dock-top.st-hidden .panel {
+  transform: translateY(-660px);
+}
+.dock-top.st-panel .panel {
+  animation-name: panel-in-top;
+}
+@keyframes panel-in-top {
+  from { transform: translateY(-660px); }
+  to { transform: none; }
+}
+
+/* 收起箭头指向收起方向（随停靠边旋转） */
+.dock-left .btn-collapse svg {
+  transform: rotate(180deg);
+}
+.dock-top .btn-collapse svg {
+  transform: rotate(-90deg);
+}
+
 /* ---------- 微光线（Hidden 态可见的 8px） ---------- */
 .glow-strip {
   position: absolute;

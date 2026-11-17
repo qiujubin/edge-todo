@@ -204,7 +204,7 @@ export function Panel(props: Props) {
               >
                 <IconPin />
               </button>
-              <button class="icon-btn" title="收起面板" onClick={props.onCollapse}>
+              <button class="icon-btn btn-collapse" title="收起面板" onClick={props.onCollapse}>
                 <IconCollapse />
               </button>
             </div>

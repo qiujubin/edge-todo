@@ -39,16 +39,24 @@ export function App() {
     }
   };
 
-  /** 离开窗口：延时收起（锁定则不动） */
+  /** 最近一次输入活动时间（打字保护：输入中不自动收起） */
+  let lastInputAt = 0;
+  const recentTyping = () =>
+    Date.now() - lastInputAt < 10_000 ||
+    !!document.querySelector(".dialog-scrim") ||
+    !!document.querySelector(".ctx-menu");
+
+  /** 离开窗口：延时收起（锁定/输入中不收） */
   const scheduleCollapse = () => {
     window.clearTimeout(collapseTimer);
     window.clearTimeout(hideTimer);
     if (locked() || dock() !== "panel") return;
+    if (recentTyping()) return;
     collapseTimer = window.setTimeout(() => {
-      if (locked()) return;
+      if (locked() || recentTyping()) return;
       goTo("handle");
       hideTimer = window.setTimeout(() => {
-        if (locked()) return;
+        if (locked() || recentTyping()) return;
         goTo("hidden");
       }, HIDE_MS);
     }, COLLAPSE_MS);
@@ -93,9 +101,22 @@ export function App() {
     const un4 = await listen<string>("dock-side-changed", (e) => {
       setEdge(e.payload as "left" | "right" | "top");
     });
+    // Rust 动画开始即通知（托盘等非前端发起的收放也能同步 CSS 滑动）
+    const un5 = await listen<string>("dock-anim", (e) => {
+      setDock(e.payload as DockState);
+    });
 
     // 停靠边初值
     setEdge(await api.getDockSide());
+
+    // 输入活动追踪：输入框聚焦/按键时刷新时间戳
+    const markInput = (e: Event) => {
+      if ((e.target as HTMLElement).matches?.("input, textarea")) {
+        lastInputAt = Date.now();
+      }
+    };
+    window.addEventListener("keydown", markInput, true);
+    window.addEventListener("focusin", markInput, true);
 
     // 窗口级鼠标事件（三态切换）
     document.addEventListener("mouseleave", () => scheduleCollapse());
@@ -116,7 +137,10 @@ export function App() {
       un2();
       un3();
       un4();
+      un5();
       window.clearInterval(clock);
+      window.removeEventListener("keydown", markInput, true);
+      window.removeEventListener("focusin", markInput, true);
     });
   });
 
@@ -137,7 +161,13 @@ export function App() {
   return (
     <div
       class="app-root"
-      classList={{ "dock-left": edge() === "left", "dock-top": edge() === "top" }}
+      classList={{
+        "dock-left": edge() === "left",
+        "dock-top": edge() === "top",
+        "st-hidden": dock() === "hidden",
+        "st-handle": dock() === "handle",
+        "st-panel": dock() === "panel",
+      }}
       style="position: relative; width: 100%; height: 100%;"
       onMouseEnter={() => {
         // 进入窗口可见区即展开（Hidden/Handle → Panel）

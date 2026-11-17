@@ -338,6 +338,8 @@ impl Dock {
         let Ok(size) = win.inner_size() else { return };
         let from = self.inner.cur_strip.load(Ordering::SeqCst);
         let to = target.strip_px(scale, self.edge(), size.width as i32, size.height as i32);
+        // 动画开始即广播目标态：前端 CSS 内容滑动与区域裁剪同步起跑
+        let _ = app.emit("dock-anim", target.as_str());
         if from == to {
             self.settle(app, &win, target);
             return;

@@ -271,16 +271,14 @@ impl Db {
             return Ok(());
         }
         let assignments: Vec<String> = sets.iter().map(|(k, _)| format!("{k} = ?")).collect();
+        // id 直接内插（i64 无注入风险），占位符数量 = 字段数
         let sql = format!("UPDATE tasks SET {} WHERE id = {}", assignments.join(", "), id);
-        let n = sets.len();
         let mut st = self.0.prepare(&sql)?;
-        // 绑定动态参数
         let mut idx = 1;
         for (_, v) in sets {
             st.raw_bind_parameter(idx, v)?;
             idx += 1;
         }
-        st.raw_bind_parameter(n + 1, id)?;
         st.raw_execute()?;
         Ok(())
     }
@@ -594,5 +592,38 @@ mod tests {
         // 次日自动刷新为未完成（重复任务的预期行为）
         let items = db.view(d2).unwrap();
         assert!(!items.iter().find(|i| i.id == id).unwrap().completed);
+    }
+
+    #[test]
+    fn update_task_fields_persists_all() {
+        let db = temp_db();
+        let id = db
+            .create_task(TaskKind::Once, "原标题", None, false, Some("2026-01-01"), &[], None, None)
+            .unwrap();
+        // 模拟编辑：改标题/类型/截止/置顶/周几/间隔/每日时刻
+        db.update_task_fields(id, &[
+            ("title".into(), "新标题".into()),
+            ("kind".into(), "weekly".into()),
+            ("deadline".into(), "2026-02-15T09:30".into()),
+            ("pinned".into(), "1".into()),
+            ("weekly_days".into(), "2,4".into()),
+            ("interval_days".into(), "3".into()),
+            ("daily_due_time".into(), "21:00".into()),
+        ]).unwrap();
+
+        let t = db.all_tasks().unwrap().into_iter().find(|t| t.id == id).unwrap();
+        assert_eq!(t.title, "新标题");
+        assert_eq!(t.kind, TaskKind::Weekly);
+        assert!(t.pinned);
+        assert_eq!(t.weekly_days, vec![2, 4]);
+        assert_eq!(t.interval_days, Some(3));
+        assert_eq!(
+            t.daily_due_time.map(|tm| tm.format("%H:%M").to_string()),
+            Some("21:00".into())
+        );
+        assert_eq!(
+            t.deadline.map(|dt| dt.format("%Y-%m-%dT%H:%M").to_string()),
+            Some("2026-02-15T09:30".into())
+        );
     }
 }

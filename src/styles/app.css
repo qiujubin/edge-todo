@@ -985,6 +985,14 @@
   background: var(--color-accent);
   box-shadow: 0 0 8px var(--color-accent-line);
 }
+.dialog-err {
+  font-size: 11px;
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  border-radius: 6px;
+  padding: 6px 9px;
+  overflow-wrap: break-word;
+}
 .dialog-actions {
   display: flex;
   gap: var(--sp-2);

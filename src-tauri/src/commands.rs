@@ -80,6 +80,7 @@ pub fn update_task(
     app: AppHandle,
     state: State<'_, AppState>,
     id: i64,
+    kind: Option<String>,
     title: Option<String>,
     note: Option<String>,
     pinned: Option<bool>,
@@ -90,6 +91,9 @@ pub fn update_task(
     paused: Option<bool>,
 ) -> Result<(), String> {
     let db = state.db.lock().map_err(|e| e.to_string())?;
+    if let Some(k) = kind {
+        db.update_task_fields(id, &[("kind".into(), k)]).map_err(|e| e.to_string())?;
+    }
     if let Some(v) = title {
         db.update_task_fields(id, &[("title".into(), v)]).map_err(|e| e.to_string())?;
     }

@@ -29,6 +29,7 @@ export function EditDialog(props: Props) {
   const [every, setEvery] = createSignal<number>(src?.intervalDays ?? 2);
   // 重复任务每日截止时刻
   const [dailyTime, setDailyTime] = createSignal("");
+  const [err, setErr] = createSignal("");
 
   const toggleDay = (d: number) => {
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()));
@@ -66,12 +67,16 @@ export function EditDialog(props: Props) {
       dailyDueTime:
         kind() !== "once" && kind() !== "log" && dailyTime() ? dailyTime() : null,
     };
-    if (src) {
-      await api.updateTask(draft);
-    } else {
-      await api.createTask(draft);
+    try {
+      if (src) {
+        await api.updateTask(draft);
+      } else {
+        await api.createTask(draft);
+      }
+      props.onClose();
+    } catch (e) {
+      setErr(String(e).slice(0, 120)); // 保存失败可见（弹窗不关）
     }
-    props.onClose();
   };
 
   return (
@@ -176,6 +181,10 @@ export function EditDialog(props: Props) {
             <span>置顶显示</span>
             <button class="switch" classList={{ on: pinned() }} role="switch" aria-checked={pinned()} onClick={() => setPinned(!pinned())} />
           </div>
+
+          <Show when={err()}>
+            <div class="dialog-err">保存失败：{err()}</div>
+          </Show>
 
           <div class="dialog-actions">
             <Show when={src}>

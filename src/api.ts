@@ -21,6 +21,7 @@ export async function createTask(draft: TaskDraft): Promise<number> {
 export async function updateTask(draft: TaskDraft): Promise<void> {
   await invoke("update_task", {
     id: draft.id,
+    kind: draft.kind,
     title: draft.title,
     note: draft.note ?? null,
     pinned: draft.pinned,

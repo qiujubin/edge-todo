@@ -336,7 +336,8 @@ impl Db {
                 TaskKind::Once => {
                     let base = t.deadline.map(|dt| dt.date()).unwrap_or(d);
                     let time = t.deadline.map(|dt| dt.time());
-                    let new_dl = base + Duration::days(1);
+                    // 已过期的任务延期时直接跳到明天，而不是从过去的日期 +1
+                    let new_dl = std::cmp::max(base + Duration::days(1), d + Duration::days(1));
                     let dl_str = match time {
                         Some(tm) => new_dl.format("%Y-%m-%d").to_string() + &tm.format("T%H:%M").to_string(),
                         None => new_dl.format("%Y-%m-%d").to_string(),

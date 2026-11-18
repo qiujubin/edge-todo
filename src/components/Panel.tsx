@@ -128,6 +128,8 @@ export function Panel(props: Props) {
         note: item.note,
         pinned: item.pinned,
         deadline: item.dueAt,
+        weeklyDays: item.weeklyDays,
+        intervalDays: item.intervalDays,
       }),
     );
     closeCtx();

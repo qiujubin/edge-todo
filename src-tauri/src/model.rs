@@ -75,6 +75,10 @@ pub struct ViewItem {
     pub log_today: i64,
     /// log 型：累计笔数
     pub log_total: i64,
+    /// weekly：周几列表（编辑回显 / 删除撤销重建用）
+    pub weekly_days: Vec<u8>,
+    /// interval：间隔天数
+    pub interval_days: Option<i64>,
 }
 
 // ---------- 日期规则推导 ----------
@@ -214,6 +218,8 @@ pub fn build_view(
             postpone_count: postpone_counts.get(&t.id).copied().unwrap_or(0),
             log_today: log_today.get(&t.id).copied().unwrap_or(0),
             log_total: log_total.get(&t.id).copied().unwrap_or(0),
+            weekly_days: t.weekly_days.clone(),
+            interval_days: t.interval_days,
         });
     }
     out.sort_by(|a, b| a.sort_order.partial_cmp(&b.sort_order).unwrap_or(std::cmp::Ordering::Equal));

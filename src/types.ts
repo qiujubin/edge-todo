@@ -24,6 +24,10 @@ export interface ViewItem {
   postponeCount: number;
   logToday: number;
   logTotal: number;
+  /** weekly：周几列表（编辑回显 / 删除撤销重建用） */
+  weeklyDays: number[];
+  /** interval：间隔天数 */
+  intervalDays: number | null;
 }
 
 export interface ViewData {

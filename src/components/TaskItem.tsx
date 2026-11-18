@@ -100,6 +100,7 @@ export function TaskItem(props: Props) {
           onClick={() => {
             const snapshot = props.item;
             void api.deleteTask(props.item.id);
+            // 撤销重建需携带完整周期配置（weekly/interval）
             props.onUndoableAction(`已删除「${snapshot.title}」`, () =>
               api.createTask({
                 kind: snapshot.kind,
@@ -107,6 +108,8 @@ export function TaskItem(props: Props) {
                 note: snapshot.note,
                 pinned: snapshot.pinned,
                 deadline: snapshot.dueAt,
+                weeklyDays: snapshot.weeklyDays,
+                intervalDays: snapshot.intervalDays,
               }),
             );
           }}

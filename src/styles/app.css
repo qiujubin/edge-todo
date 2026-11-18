@@ -308,6 +308,7 @@
   gap: var(--sp-2);
   flex: 1;
   min-width: 0;
+  white-space: nowrap;
 }
 .head-date .big {
   font-family: var(--font-display);
@@ -453,7 +454,7 @@
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--sp-1) var(--sp-3) var(--sp-2);
+  padding: var(--sp-1) 10px var(--sp-2);
   scrollbar-width: thin;
   scrollbar-color: rgba(0, 229, 204, 0.25) transparent;
 }
@@ -483,6 +484,7 @@
   letter-spacing: 0.16em;
   color: var(--color-text-faint);
   font-weight: 600;
+  white-space: nowrap;
 }
 .group-label .zh {
   font-family: var(--font-body);
@@ -531,7 +533,7 @@
   display: flex;
   align-items: flex-start;
   gap: var(--sp-2);
-  padding: 7px var(--sp-2) 7px var(--sp-2);
+  padding: 7px 7px;
   margin: 2px 0;
   border-radius: 9px;
   transition: background var(--dur-fast);
@@ -615,7 +617,8 @@
   font-size: var(--fs-title);
   color: var(--color-text);
   line-height: 1.45;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
+  word-break: normal;
   flex: 1;
   min-width: 0;
 }
@@ -657,9 +660,10 @@
 .badge {
   font-family: var(--font-mono);
   font-size: 10px;
-  padding: 1px 6px;
+  padding: 1px 5px;
   border-radius: 4px;
   letter-spacing: 0.03em;
+  white-space: nowrap;
   background: rgba(233, 241, 244, 0.05);
   color: var(--color-text-dim);
 }
@@ -810,6 +814,7 @@
   font-size: 10px;
   color: var(--color-text-faint);
   letter-spacing: 0.05em;
+  white-space: nowrap;
 }
 .panel-foot .brand {
   font-family: var(--font-display);
@@ -904,6 +909,7 @@
   color: var(--color-text-dim);
   transition: all var(--dur-fast);
   letter-spacing: 0.04em;
+  white-space: nowrap;
 }
 .seg button:hover {
   color: var(--color-text);
@@ -928,6 +934,7 @@
   border: 1px solid var(--color-hairline);
   color: var(--color-text-dim);
   transition: all var(--dur-fast);
+  white-space: nowrap;
 }
 .week-days button.on {
   background: var(--color-accent-soft);

@@ -1,6 +1,7 @@
 import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { listen } from "@tauri-apps/api/event";
 import type { DockState, ViewItem } from "./types";
+import { isSameDay } from "./time";
 import * as api from "./api";
 import { Panel } from "./components/Panel";
 
@@ -122,11 +123,24 @@ export function App() {
     document.addEventListener("mouseleave", () => scheduleCollapse());
     document.addEventListener("mouseenter", () => cancelCollapse());
     window.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && dock() === "panel") goTo("handle");
+      if (e.key === "Escape" && dock() === "panel") {
+        // 编辑弹窗/右键菜单开着时，Esc 只关它们，不收面板
+        if (document.querySelector(".dialog-scrim, .ctx-menu")) return;
+        goTo("handle");
+      }
     });
 
-    // 分钟级时钟（倒计时徽章）
-    const clock = window.setInterval(() => setNow(new Date()), 30_000);
+    // 分钟级时钟（倒计时徽章 + 跨零点自动刷新视图）
+    const clock = window.setInterval(() => {
+      const n = new Date();
+      if (!isSameDay(n, now())) {
+        void api.getView().then((v) => {
+          setItems(v.items);
+          setUrgent(v.urgent);
+        });
+      }
+      setNow(n);
+    }, 30_000);
 
     // 锁定状态持久化恢复
     const saved = await api.getSetting("locked");

@@ -1,4 +1,4 @@
-import { createSignal, For, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, For, Show } from "solid-js";
 import type { TaskDraft, TaskKind, ViewItem } from "../types";
 import { KIND_LABEL } from "../types";
 import { isoDate } from "../time";
@@ -23,16 +23,25 @@ export function EditDialog(props: Props) {
   // once 截止
   const [dueDate, setDueDate] = createSignal(src?.dueAt?.slice(0, 10) ?? isoDate(new Date()));
   const [dueTime, setDueTime] = createSignal(src?.dueAt?.slice(11, 16) ?? "");
-  // weekly
+  // weekly：编辑时回显真实周几（ViewItem.weeklyDays），新建默认今天
   const [days, setDays] = createSignal<number[]>(parseWeekly(src));
-  // interval
-  const [every, setEvery] = createSignal<number>(2);
+  // interval：编辑时回显真实间隔
+  const [every, setEvery] = createSignal<number>(src?.intervalDays ?? 2);
   // 重复任务每日截止时刻
   const [dailyTime, setDailyTime] = createSignal("");
 
   const toggleDay = (d: number) => {
     setDays((prev) => (prev.includes(d) ? prev.filter((x) => x !== d) : [...prev, d].sort()));
   };
+
+  // Esc 关闭弹窗（App 层在弹窗开着时会跳过收起面板）
+  onMount(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") props.onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => window.removeEventListener("keydown", onKey));
+  });
 
   const save = async () => {
     const t = title().trim();
@@ -46,13 +55,12 @@ export function EditDialog(props: Props) {
       note: note().trim() || null,
       pinned: pinned(),
       deadline,
+      // 每周：回显值/用户勾选值；全不选时保底勾选今天（避免建成永不出现的任务）
       weeklyDays:
         kind() === "weekly"
           ? days().length
             ? days()
-            : src?.kind === "weekly"
-              ? undefined // 编辑时未改动 → 不覆盖原值
-              : [new Date().getDay() === 0 ? 7 : new Date().getDay()] // 新建默认今天
+            : [new Date().getDay() === 0 ? 7 : new Date().getDay()]
           : undefined,
       intervalDays: kind() === "interval" ? every() : null,
       dailyDueTime:
@@ -199,7 +207,8 @@ function buildDeadline(date: string, time: string): string {
   return time ? `${date}T${time}` : date;
 }
 
-function parseWeekly(_src: ViewItem | null): number[] {
-  // ViewItem 不含 weekly_days 明细，编辑时先显示空选，保存时空值不覆盖
-  return [];
+function parseWeekly(src: ViewItem | null): number[] {
+  // 编辑：回显真实周几；新建：默认勾选今天
+  if (src && src.kind === "weekly" && src.weeklyDays.length) return src.weeklyDays;
+  return [new Date().getDay() === 0 ? 7 : new Date().getDay()];
 }

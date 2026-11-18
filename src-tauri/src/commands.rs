@@ -112,8 +112,11 @@ pub fn update_task(
         db.update_task_fields(id, &[("weekly_days".into(), s)]).map_err(|e| e.to_string())?;
     }
     if let Some(v) = interval_days {
-        db.update_task_fields(id, &[("interval_days".into(), v.to_string())])
-            .map_err(|e| e.to_string())?;
+        // 改间隔 = 从今天重新按新间隔计算（锚点重置，任务不会因相位错位"消失"）
+        db.update_task_fields(id, &[
+            ("interval_days".into(), v.to_string()),
+            ("interval_anchor".into(), today().format("%Y-%m-%d").to_string()),
+        ]).map_err(|e| e.to_string())?;
     }
     if let Some(v) = daily_due_time {
         db.update_task_fields(id, &[("daily_due_time".into(), v)]).map_err(|e| e.to_string())?;

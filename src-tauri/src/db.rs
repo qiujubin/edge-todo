@@ -5,7 +5,7 @@ use chrono::{Duration, Local, NaiveDate, NaiveDateTime};
 use rusqlite::{params, Connection, Row};
 
 use crate::model::{
-    build_view, effective_due, fmt_datetime, occurs_today, parse_datetime, TaskKind,
+    build_view, effective_due, fmt_datetime, occurs_today, parse_date, parse_datetime, TaskKind,
     TaskRow, ViewItem,
 };
 
@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     deadline       TEXT,                      -- once: "2026-11-20" 或 "2026-11-20T18:00"
     weekly_days    TEXT,                      -- weekly: "1,3,5"
     interval_days  INTEGER,
+    interval_anchor TEXT,                -- interval：锚点日期（改间隔时重置为当天）
     daily_due_time TEXT,                      -- 重复任务每日截止 "22:00"
     paused         INTEGER NOT NULL DEFAULT 0,
     created_at     TEXT NOT NULL,
@@ -102,6 +103,10 @@ fn row_to_task(r: &Row) -> rusqlite::Result<TaskRow> {
             })
             .unwrap_or_default(),
         interval_days: r.get("interval_days")?,
+        interval_anchor: r
+            .get::<_, Option<String>>("interval_anchor")?
+            .as_deref()
+            .and_then(parse_date),
         daily_due_time: due_time.as_deref().and_then(parse_time),
         paused: r.get::<_, i64>("paused")? != 0,
         created_at: created_at
@@ -122,6 +127,19 @@ impl Db {
         std::fs::create_dir_all(dir).ok();
         let conn = Connection::open(dir.join("edge.db"))?;
         conn.execute_batch(SCHEMA)?;
+        // 一次性迁移：老库补锚点列，并把周期任务锚点重置为今天
+        // （旧实现锚点=创建日，改间隔后按旧余数相位可能连续多天不可见）
+        let needs_migration = conn
+            .prepare("SELECT interval_anchor FROM tasks LIMIT 1")
+            .is_err();
+        if needs_migration {
+            let _ = conn.execute_batch("ALTER TABLE tasks ADD COLUMN interval_anchor TEXT");
+            let today = Local::now().date_naive().format("%Y-%m-%d").to_string();
+            let _ = conn.execute(
+                "UPDATE tasks SET interval_anchor = ?1 WHERE kind = 'interval'",
+                params![today],
+            );
+        }
         Ok(Db(conn))
     }
 
@@ -592,6 +610,29 @@ mod tests {
         // 次日自动刷新为未完成（重复任务的预期行为）
         let items = db.view(d2).unwrap();
         assert!(!items.iter().find(|i| i.id == id).unwrap().completed);
+    }
+
+    #[test]
+    fn interval_anchor_rebase_on_edit() {
+        let db = temp_db();
+        let today = chrono::Local::now().date_naive();
+        let id = db
+            .create_task(TaskKind::Interval, "周期", None, false, None, &[], Some(3), None)
+            .unwrap();
+
+        // 创建日可见；明天不可见；3 天后可见
+        assert!(db.view(today).unwrap().iter().any(|i| i.id == id));
+        assert!(!db.view(today + chrono::Duration::days(1)).unwrap().iter().any(|i| i.id == id));
+        assert!(db.view(today + chrono::Duration::days(3)).unwrap().iter().any(|i| i.id == id));
+
+        // 编辑间隔（2 天）→ 锚点重置为今天 → 今天可见，2 天后再现（不再按旧相位消失）
+        db.update_task_fields(id, &[
+            ("interval_days".into(), "2".into()),
+            ("interval_anchor".into(), today.format("%Y-%m-%d").to_string()),
+        ]).unwrap();
+        assert!(db.view(today).unwrap().iter().any(|i| i.id == id));
+        assert!(!db.view(today + chrono::Duration::days(1)).unwrap().iter().any(|i| i.id == id));
+        assert!(db.view(today + chrono::Duration::days(2)).unwrap().iter().any(|i| i.id == id));
     }
 
     #[test]

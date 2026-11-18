@@ -32,6 +32,8 @@ pub struct TaskRow {
     pub weekly_days: Vec<u8>,
     /// interval: 间隔天数
     pub interval_days: Option<i64>,
+    /// interval: 锚点日期（改间隔时重置；缺省回退创建日）
+    pub interval_anchor: Option<NaiveDate>,
     /// 重复任务可选的每日截止时刻 "22:00"
     pub daily_due_time: Option<NaiveTime>,
     /// log 型暂停
@@ -99,7 +101,7 @@ pub fn occurs_today(t: &TaskRow, d: NaiveDate) -> bool {
             .unwrap_or(false),
         TaskKind::Interval => {
             let n = t.interval_days.unwrap_or(1).max(1) as i64;
-            let anchor = t.created_at.date();
+            let anchor = t.interval_anchor.unwrap_or_else(|| t.created_at.date());
             let diff = (d - anchor).num_days();
             diff >= 0 && diff % n == 0
         }

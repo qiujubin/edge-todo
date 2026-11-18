@@ -369,7 +369,23 @@ impl Db {
                         params![id, now[..10].to_string()],
                     )?;
                 }
+                TaskKind::Interval => {
+                    // 周期任务"延到明天"= 锚点重置为明天：明天准点出现，此后每 N 天一轮
+                    // （旧实现只跳过今天，下一轮仍按旧节奏，可能 N 天后才出现）
+                    let tomorrow = (d + Duration::days(1)).format("%Y-%m-%d").to_string();
+                    self.0.execute(
+                        "UPDATE tasks SET interval_anchor = ?2 WHERE id = ?1",
+                        params![id, tomorrow],
+                    )?;
+                    // 仍记一笔延期（拖延计数徽章用）
+                    self.0.execute(
+                        "INSERT INTO postpones (task_id, date, count) VALUES (?1, ?2, 1)
+                         ON CONFLICT(task_id, date) DO UPDATE SET count = count + 1",
+                        params![id, ds],
+                    )?;
+                }
                 _ => {
+                    // 每日/每周：跳过今天，按各自节奏自然回归
                     self.0.execute(
                         "INSERT INTO postpones (task_id, date, count) VALUES (?1, ?2, 1)
                          ON CONFLICT(task_id, date) DO UPDATE SET count = count + 1",
@@ -610,6 +626,24 @@ mod tests {
         // 次日自动刷新为未完成（重复任务的预期行为）
         let items = db.view(d2).unwrap();
         assert!(!items.iter().find(|i| i.id == id).unwrap().completed);
+    }
+
+    #[test]
+    fn interval_postpone_moves_next_occurrence_to_tomorrow() {
+        let db = temp_db();
+        let today = chrono::Local::now().date_naive();
+        let id = db
+            .create_task(TaskKind::Interval, "周期", None, false, None, &[], Some(3), None)
+            .unwrap();
+
+        // 今天延期 → 今天不可见
+        db.postpone(id, today).unwrap();
+        assert!(!db.view(today).unwrap().iter().any(|i| i.id == id));
+        // 明天准点可见（"延到明天"的字面语义）
+        assert!(db.view(today + chrono::Duration::days(1)).unwrap().iter().any(|i| i.id == id));
+        // 此后每 3 天一轮：明天+3 可见，中间不可见
+        assert!(!db.view(today + chrono::Duration::days(2)).unwrap().iter().any(|i| i.id == id));
+        assert!(db.view(today + chrono::Duration::days(4)).unwrap().iter().any(|i| i.id == id));
     }
 
     #[test]

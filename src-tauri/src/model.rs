@@ -150,11 +150,13 @@ pub fn effective_due(t: &TaskRow, d: NaiveDate) -> Option<NaiveDateTime> {
     }
 }
 
-/// 构建某日视图。completed/postponed/log_today 为当日记录集合。
+/// 构建某日视图。completed/postponed/log_today 为当日记录集合；
+/// done_once 为「已有任意完成记录的一次性任务」——一次性任务是二态，跨天不复活。
 pub fn build_view(
     tasks: &[TaskRow],
     d: NaiveDate,
     completed: &std::collections::HashSet<i64>,
+    done_once: &std::collections::HashSet<i64>,
     postponed: &std::collections::HashSet<i64>,
     log_today: &std::collections::HashMap<i64, i64>,
     log_total: &std::collections::HashMap<i64, i64>,
@@ -166,7 +168,8 @@ pub fn build_view(
         if t.archived_at.is_some() {
             continue;
         }
-        let is_done = completed.contains(&t.id);
+        let is_done =
+            completed.contains(&t.id) || (t.kind == TaskKind::Once && done_once.contains(&t.id));
         let group = if t.kind == TaskKind::Log {
             if t.paused {
                 continue;

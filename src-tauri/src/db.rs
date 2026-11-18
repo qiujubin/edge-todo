@@ -131,6 +131,22 @@ impl Db {
         rows.collect()
     }
 
+    /// 有任意完成记录的一次性任务 id 集（一次性任务 = 二态，跨天不复活）
+    fn once_done_ids(&self) -> HashSet<i64> {
+        let mut st = match self
+            .0
+            .prepare("SELECT DISTINCT c.task_id FROM completions c JOIN tasks t ON t.id = c.task_id WHERE t.kind = 'once'")
+        {
+            Ok(s) => s,
+            Err(_) => return HashSet::new(),
+        };
+        let x = st
+            .query_map([], |r| r.get::<_, i64>(0))
+            .and_then(|rows| rows.collect::<rusqlite::Result<_>>())
+            .unwrap_or_default();
+        x
+    }
+
     fn task(&self, id: i64) -> rusqlite::Result<Option<TaskRow>> {
         let mut st = self.0.prepare("SELECT * FROM tasks WHERE id = ?1")?;
         let mut rows = st.query_map(params![id], row_to_task)?;
@@ -198,6 +214,7 @@ impl Db {
             &tasks,
             d,
             &completed,
+            &self.once_done_ids(),
             &postponed,
             &log_today,
             &log_total,
@@ -290,10 +307,22 @@ impl Db {
                 params![id, ds, now],
             )?;
         } else {
-            self.0.execute(
-                "DELETE FROM completions WHERE task_id = ?1 AND date = ?2",
-                params![id, ds],
-            )?;
+            let kind: Option<String> = self
+                .0
+                .query_row("SELECT kind FROM tasks WHERE id = ?1", params![id], |r| {
+                    r.get(0)
+                })
+                .ok();
+            if kind.as_deref() == Some("once") {
+                // 一次性任务是二态：撤销 = 删除全部完成记录（否则跨天会误判已完成）
+                self.0
+                    .execute("DELETE FROM completions WHERE task_id = ?1", params![id])?;
+            } else {
+                self.0.execute(
+                    "DELETE FROM completions WHERE task_id = ?1 AND date = ?2",
+                    params![id, ds],
+                )?;
+            }
         }
         Ok(())
     }
@@ -365,16 +394,17 @@ impl Db {
 
     pub fn clear_completed_today(&self, d: NaiveDate) -> rusqlite::Result<()> {
         let ds = d.format("%Y-%m-%d").to_string();
-        // 归档今天完成的一次性任务；重复任务仅清掉当日完成记录
+        // 归档所有有完成记录的一次性任务（不限当日——一次性任务是二态）
         self.0.execute(
-            "UPDATE tasks SET archived_at = ?2
-             WHERE kind = 'once' AND id IN (SELECT task_id FROM completions WHERE date = ?1)",
-            params![ds, Local::now().format("%Y-%m-%dT%H:%M").to_string()],
+            "UPDATE tasks SET archived_at = ?1 WHERE kind = 'once' AND id IN (SELECT task_id FROM completions)",
+            params![Local::now().format("%Y-%m-%dT%H:%M").to_string()],
         )?;
         self.0.execute(
-            "DELETE FROM completions WHERE date = ?1 AND task_id NOT IN (SELECT id FROM tasks WHERE kind = 'once')",
-            params![ds],
+            "DELETE FROM completions WHERE task_id IN (SELECT id FROM tasks WHERE kind = 'once')",
+            [],
         )?;
+        // 重复任务仅清掉当日完成记录
+        self.0.execute("DELETE FROM completions WHERE date = ?1", params![ds])?;
         Ok(())
     }
 
@@ -384,7 +414,7 @@ impl Db {
     pub fn upcoming(&self, d: NaiveDate, within_min: i64, now: NaiveDateTime) -> Vec<(i64, String, NaiveDateTime)> {
         let Ok(tasks) = self.all_tasks() else { return vec![] };
         let ds = d.format("%Y-%m-%d").to_string();
-        let done: HashSet<i64> = self
+        let mut done: HashSet<i64> = self
             .0
             .prepare("SELECT task_id FROM completions WHERE date = ?1")
             .and_then(|mut st| {
@@ -392,6 +422,7 @@ impl Db {
                     .collect::<rusqlite::Result<_>>()
             })
             .unwrap_or_default();
+        done.extend(self.once_done_ids());
         let mut out = vec![];
         for t in tasks {
             if t.archived_at.is_some() || done.contains(&t.id) {
@@ -411,7 +442,7 @@ impl Db {
     pub fn urgent(&self, d: NaiveDate, now: NaiveDateTime) -> bool {
         let Ok(tasks) = self.all_tasks() else { return false };
         let ds = d.format("%Y-%m-%d").to_string();
-        let done: HashSet<i64> = self
+        let mut done: HashSet<i64> = self
             .0
             .prepare("SELECT task_id FROM completions WHERE date = ?1")
             .and_then(|mut st| {
@@ -419,6 +450,7 @@ impl Db {
                     .collect::<rusqlite::Result<_>>()
             })
             .unwrap_or_default();
+        done.extend(self.once_done_ids());
         tasks.iter().any(|t| {
             if t.archived_at.is_some() || done.contains(&t.id) {
                 return false;
@@ -511,5 +543,55 @@ impl Db {
             log_entries: logs,
         })
         .map_err(|e| rusqlite::Error::ToSqlConversionFailure(e.into()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Group, TaskKind};
+
+    fn temp_db() -> Db {
+        let dir = std::env::temp_dir().join(format!("edge-test-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        Db::open(&dir).unwrap()
+    }
+
+    #[test]
+    fn once_task_stays_done_across_days() {
+        let db = temp_db();
+        let id = db
+            .create_task(TaskKind::Once, "一次性", None, false, Some("2026-01-01"), &[], None, None)
+            .unwrap();
+        let d1 = chrono::NaiveDate::from_ymd_opt(2025, 12, 31).unwrap();
+        let d2 = chrono::NaiveDate::from_ymd_opt(2026, 1, 2).unwrap();
+
+        // 12-31 划掉
+        db.toggle_complete(id, d1, true).unwrap();
+        // 两天后的视图：必须仍显示已完成（Done 组），不得复活
+        let items = db.view(d2).unwrap();
+        let it = items.iter().find(|i| i.id == id).unwrap();
+        assert!(it.completed && it.group == Group::Done);
+
+        // 撤销划掉（任意一天）→ 恢复未完成
+        db.toggle_complete(id, d2, false).unwrap();
+        let items = db.view(d2).unwrap();
+        let it = items.iter().find(|i| i.id == id).unwrap();
+        assert!(!it.completed && it.group != Group::Done);
+    }
+
+    #[test]
+    fn daily_task_resets_next_day() {
+        let db = temp_db();
+        let id = db.create_task(TaskKind::Daily, "每日", None, false, None, &[], None, None).unwrap();
+        let d1 = chrono::NaiveDate::from_ymd_opt(2026, 1, 1).unwrap();
+        let d2 = chrono::NaiveDate::from_ymd_opt(2026, 1, 2).unwrap();
+
+        db.toggle_complete(id, d1, true).unwrap();
+        let items = db.view(d1).unwrap();
+        assert!(items.iter().find(|i| i.id == id).unwrap().completed);
+        // 次日自动刷新为未完成（重复任务的预期行为）
+        let items = db.view(d2).unwrap();
+        assert!(!items.iter().find(|i| i.id == id).unwrap().completed);
     }
 }

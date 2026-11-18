@@ -4,9 +4,9 @@ import type { DockState, ViewItem } from "./types";
 import * as api from "./api";
 import { Panel } from "./components/Panel";
 
-/** 自动收起节奏：离开面板 4s → 把手；把手再闲置 3s → 微光 */
-const COLLAPSE_MS = 4000;
-const HIDE_MS = 3000;
+/** 自动收起节奏：离开面板 2s → 把手；把手再闲置 1.5s → 微光 */
+const COLLAPSE_MS = 2000;
+const HIDE_MS = 1500;
 
 export function App() {
   const [dock, setDock] = createSignal<DockState>("hidden");

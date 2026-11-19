@@ -46,6 +46,9 @@ pub fn run() {
             if let Some(win) = app.get_webview_window("main") {
                 dock.init(&win);
                 let _ = win.show();
+                // show 之后剥系统标题栏（tao 在 show 时会重应用缓存的窗口样式，
+                // 提前剥会被覆盖回去）
+                dock.strip_native_frame(&win);
 
                 // 首次出现：微光 → 把手，让用户注意到边缘有东西
                 let app2 = app.handle().clone();

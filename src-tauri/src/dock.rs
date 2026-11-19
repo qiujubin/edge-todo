@@ -119,8 +119,24 @@ mod win32 {
         pub fn SetWindowRgn(hwnd: isize, rgn: isize, redraw: i32) -> i32;
         pub fn GetCursorPos(lp: *mut Point) -> i32;
         pub fn GetAsyncKeyState(key: i32) -> i16;
+        pub fn GetWindowLongW(hwnd: isize, idx: i32) -> i32;
+        pub fn SetWindowLongW(hwnd: isize, idx: i32, value: i32) -> i32;
+        pub fn SetWindowPos(hwnd: isize, after: isize, x: i32, y: i32, cx: i32, cy: i32, flags: u32) -> i32;
+    }
+    #[link(name = "dwmapi")]
+    extern "system" {
+        pub fn DwmSetWindowAttribute(hwnd: isize, attr: u32, value: *const u32, size: u32) -> i32;
     }
     pub const VK_LBUTTON: i32 = 0x01;
+    pub const GWL_STYLE: i32 = -16;
+    pub const WS_CAPTION: i32 = 0x00C0_0000;
+    pub const WS_THICKFRAME: i32 = 0x0004_0000;
+    pub const SWP_NOSIZE: u32 = 0x0001;
+    pub const SWP_NOMOVE: u32 = 0x0002;
+    pub const SWP_NOZORDER: u32 = 0x0004;
+    pub const SWP_FRAMECHANGED: u32 = 0x0020;
+    pub const DWMWA_NCRENDERING_POLICY: u32 = 2;
+    pub const DWMNCRENDERINGPOLICY_DISABLED: u32 = 1;
 }
 
 /// 窄条矩形（窗口本地物理坐标）
@@ -230,6 +246,47 @@ impl Dock {
         self.inner.cur_x.store(x, Ordering::SeqCst);
         self.inner.cur_y.store(y, Ordering::SeqCst);
         let _ = win.set_position(PhysicalPosition::new(x, y));
+    }
+
+    /// 永久禁用系统标题栏绘制。SetWindowRgn 会让 DWM 对该窗口退回传统 GDI
+    /// 边框路径——窗口失活（点别的应用）时系统按 CAPTION 样式重绘非客户区，
+    /// 原生标题栏就画出来并常驻。双保险：
+    ///   1) DWM 层禁用非客户区渲染
+    ///   2) 剥掉 WS_CAPTION/WS_THICKFRAME 样式位（shadow 已关闭，无副作用）
+    /// 注意：必须在窗口 show() 之后调用——tao 在 show 时会重新应用缓存的
+    /// 窗口样式，提前剥会被覆盖回去。
+    pub fn strip_native_frame(&self, win: &WebviewWindow) {
+        #[cfg(windows)]
+        {
+            let Ok(h) = win.hwnd() else { return };
+            let hwnd = h.0 as isize;
+            unsafe {
+                let policy: u32 = win32::DWMNCRENDERINGPOLICY_DISABLED;
+                win32::DwmSetWindowAttribute(
+                    hwnd,
+                    win32::DWMWA_NCRENDERING_POLICY,
+                    &policy,
+                    4,
+                );
+                let style = win32::GetWindowLongW(hwnd, win32::GWL_STYLE);
+                let cleaned = style & !(win32::WS_CAPTION | win32::WS_THICKFRAME);
+                if cleaned != style {
+                    win32::SetWindowLongW(hwnd, win32::GWL_STYLE, cleaned);
+                    win32::SetWindowPos(
+                        hwnd,
+                        0,
+                        0,
+                        0,
+                        0,
+                        0,
+                        win32::SWP_NOMOVE
+                            | win32::SWP_NOSIZE
+                            | win32::SWP_NOZORDER
+                            | win32::SWP_FRAMECHANGED,
+                    );
+                }
+            }
+        }
     }
 
     /// 初始化：按持久化的显示器/边/位置停靠，初始 Hidden 态

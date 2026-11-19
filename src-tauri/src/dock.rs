@@ -105,6 +105,11 @@ pub struct Dock {
 
 #[cfg(windows)]
 mod win32 {
+    #[repr(C)]
+    pub struct Point {
+        pub x: i32,
+        pub y: i32,
+    }
     #[link(name = "gdi32")]
     extern "system" {
         pub fn CreateRectRgn(x1: i32, y1: i32, x2: i32, y2: i32) -> isize;
@@ -112,7 +117,10 @@ mod win32 {
     #[link(name = "user32")]
     extern "system" {
         pub fn SetWindowRgn(hwnd: isize, rgn: isize, redraw: i32) -> i32;
+        pub fn GetCursorPos(lp: *mut Point) -> i32;
+        pub fn GetAsyncKeyState(key: i32) -> i16;
     }
+    pub const VK_LBUTTON: i32 = 0x01;
 }
 
 /// 窄条矩形（窗口本地物理坐标）
@@ -382,7 +390,9 @@ impl Dock {
         });
     }
 
-    /// 头部拖动：解除裁剪 → 系统级拖动循环（跨屏/DPI 全交给 Windows）→ 松手吸附
+    /// 头部拖动：解除裁剪 → 手动拖动循环（16ms 轮询光标增量）→ 松手吸附。
+    /// 不用系统的 HTCAPTION 拖动循环——那会让 DWM 在无边框窗口上
+    /// 偶尔短暂画出系统标题栏（用户看到的"原本窗口标题栏闪现"）。
     pub fn begin_drag(&self, app: &AppHandle) {
         if !self.inner.ready.load(Ordering::SeqCst) {
             return;
@@ -391,8 +401,51 @@ impl Dock {
         let full = self.full_strip(&win);
         self.apply_region(&win, full);
         self.inner.cur_strip.store(full, Ordering::SeqCst);
-        let _ = win.start_dragging();
-        self.finish_dock(app);
+
+        let dock2 = self.clone();
+        let win2 = win.clone();
+        let app2 = app.clone();
+        std::thread::spawn(move || {
+            #[cfg(windows)]
+            {
+                let mut p = win32::Point { x: 0, y: 0 };
+                unsafe {
+                    if win32::GetCursorPos(&mut p) == 0 {
+                        return;
+                    }
+                }
+                let mut last = win32::Point { x: p.x, y: p.y };
+                let Ok(mut pos) = win2.outer_position() else { return };
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(16));
+                    unsafe {
+                        if win32::GetCursorPos(&mut p) == 0 {
+                            continue;
+                        }
+                    }
+                    let (dx, dy) = (p.x - last.x, p.y - last.y);
+                    last.x = p.x;
+                    last.y = p.y;
+                    if dx != 0 || dy != 0 {
+                        pos.x += dx;
+                        pos.y += dy;
+                        let _ = win2.set_position(PhysicalPosition::new(pos.x, pos.y));
+                    }
+                    // 松开左键 → 拖动结束（即使光标已移出窗口也可靠）
+                    unsafe {
+                        if win32::GetAsyncKeyState(win32::VK_LBUTTON) >= 0 {
+                            break;
+                        }
+                    }
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                let _ = &win2;
+                let _ = win2.start_dragging();
+            }
+            dock2.finish_dock(&app2);
+        });
     }
 
     /// 拖动结束：按最大重叠屏 + 最近边（左/右/上）吸附，并持久化

@@ -526,6 +526,10 @@
 .group.collapsed .chev {
   transform: rotate(-90deg);
 }
+/* 已完成收起：只藏任务条，分组标题保留（点击可展开） */
+.group.collapsed .task {
+  display: none;
+}
 
 /* ---------- 任务条 ---------- */
 .task {

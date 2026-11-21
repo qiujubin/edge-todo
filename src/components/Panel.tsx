@@ -159,7 +159,8 @@ export function Panel(props: Props) {
   const groups = createMemo(() => {
     const map = new Map<Group, ViewItem[]>();
     for (const it of props.items) {
-      if (it.group === "done" && !doneOpen()) continue;
+      // 注意：done 收起时不能把整组剔掉——分组标题是重新展开的入口，
+      // 只能由 CSS 隐藏任务条（.group.collapsed）
       const arr = map.get(it.group) ?? [];
       arr.push(it);
       map.set(it.group, arr);
